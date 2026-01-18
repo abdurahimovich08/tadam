@@ -156,25 +156,55 @@ export default function ProfilePage() {
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
     if (!user || !e.target.files?.[0]) return
-
+    
     setUploading(true)
     hapticFeedback('light')
     const file = e.target.files[0]
-    const fileName = `${user.id}-${Date.now()}-${index}.${file.name.split('.').pop()}`
+    
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      showAlert ? showAlert('Rasm hajmi 5MB dan oshmasligi kerak') : alert('Rasm hajmi 5MB dan oshmasligi kerak')
+      setUploading(false)
+      return
+    }
 
-    const { error } = await supabase.storage
+    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+    const fileName = `${user.id}/${Date.now()}-${index}.${fileExt}`
+
+    console.log('Uploading file:', fileName)
+
+    const { data: uploadData, error } = await supabase.storage
       .from('profile-pictures')
-      .upload(fileName, file, { upsert: true })
+      .upload(fileName, file, { 
+        upsert: true,
+        contentType: file.type 
+      })
 
-    if (!error) {
-      const { data } = supabase.storage.from('profile-pictures').getPublicUrl(fileName)
+    console.log('Upload result:', { uploadData, error })
+
+    if (error) {
+      console.error('Upload error:', error)
+      hapticFeedback('error')
+      const errorMsg = error.message || 'Rasm yuklashda xatolik'
+      showAlert ? showAlert(errorMsg) : alert(errorMsg)
+      setUploading(false)
+      return
+    }
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from('profile-pictures')
+      .getPublicUrl(fileName)
+
+    console.log('Public URL:', urlData.publicUrl)
+
+    if (urlData.publicUrl) {
       const newPhotos = [...photos]
-      newPhotos[index] = data.publicUrl
+      newPhotos[index] = urlData.publicUrl
       setPhotos(newPhotos.filter(Boolean))
       hapticFeedback('success')
-    } else {
-      hapticFeedback('error')
     }
+    
     setUploading(false)
   }
 
