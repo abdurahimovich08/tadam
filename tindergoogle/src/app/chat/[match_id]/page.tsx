@@ -3,32 +3,33 @@
 import { useEffect, useState, useRef, use } from 'react'
 import { supabase } from '@/utils/supabase'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { useTelegram } from '@/hooks/useTelegram'
-import { FullPageLoader } from '@/components/LoadingSpinner'
-import type { User, Message, Match } from '@/types'
+import type { User, Message } from '@/types'
 
 export default function Chat({ params }: { params: Promise<{ match_id: string }> }) {
   const { match_id: matchId } = use(params)
   
   const [user, setUser] = useState<User | null>(null)
-  const [otherUser, setOtherUser] = useState<User | null>(null)
+  const [otherUser, setOtherUser] = useState<User & { profile_picture_url?: string } | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState('')
   const [loading, setLoading] = useState(true)
+  const [sending, setSending] = useState(false)
+  const [isTyping, setIsTyping] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
-  const { webApp, hapticFeedback, showBackButton, onBackButtonClick } = useTelegram()
+  const { hapticFeedback, showBackButton, onBackButtonClick } = useTelegram()
 
   // Setup back button
   useEffect(() => {
     showBackButton()
-    const cleanup = onBackButtonClick(() => {
-      router.push('/matches')
-    })
+    const cleanup = onBackButtonClick(() => router.push('/matches'))
     return cleanup
   }, [showBackButton, onBackButtonClick, router])
 
-  // Load user from localStorage
+  // Load user
   useEffect(() => {
     const storedUser = localStorage.getItem('user')
     if (!storedUser) {
@@ -38,63 +39,59 @@ export default function Chat({ params }: { params: Promise<{ match_id: string }>
     setUser(JSON.parse(storedUser))
   }, [router])
 
-  // Fetch match details and messages
+  // Fetch match and messages
   useEffect(() => {
     if (!user) return
 
-    const fetchMatchAndMessages = async () => {
-      // Get match details to find other user
+    const fetchData = async () => {
+      // Get match with users
       const { data: match, error: matchError } = await supabase
         .from('matches')
         .select('*, user1:user1_id(*), user2:user2_id(*)')
         .eq('id', matchId)
         .single()
 
-      if (matchError) {
-        console.error('Error fetching match:', matchError)
+      if (matchError || !match) {
         router.push('/matches')
         return
       }
 
       const other = match.user1.id === user.id ? match.user2 : match.user1
-      setOtherUser(other)
+      
+      // Get profile picture
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('profile_picture_url')
+        .eq('id', other.id)
+        .single()
+
+      setOtherUser({ ...other, profile_picture_url: profile?.profile_picture_url })
 
       // Fetch messages
-      const { data: messagesData, error: messagesError } = await supabase
+      const { data: messagesData } = await supabase
         .from('messages')
         .select('*')
         .eq('match_id', matchId)
         .order('created_at', { ascending: true })
 
-      if (messagesError) {
-        console.error('Error fetching messages:', messagesError)
-      } else {
-        setMessages(messagesData || [])
-      }
-      
+      setMessages(messagesData || [])
       setLoading(false)
     }
 
-    fetchMatchAndMessages()
+    fetchData()
 
     // Subscribe to new messages
     const channel = supabase
       .channel(`chat:${matchId}`)
       .on(
         'postgres_changes',
-        { 
-          event: 'INSERT', 
-          schema: 'public', 
-          table: 'messages', 
-          filter: `match_id=eq.${matchId}` 
-        },
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `match_id=eq.${matchId}` },
         (payload) => {
           const newMsg = payload.new as Message
           setMessages((prev) => [...prev, newMsg])
-          
-          // Haptic feedback for received messages
           if (newMsg.sender_id !== user.id) {
             hapticFeedback('success')
+            setIsTyping(false)
           }
         }
       )
@@ -105,113 +102,240 @@ export default function Chat({ params }: { params: Promise<{ match_id: string }>
     }
   }, [user, matchId, router, hapticFeedback])
 
-  // Auto scroll to bottom
+  // Auto scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const handleSendMessage = async (e: React.FormEvent) => {
+  const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!user || !newMessage.trim()) return
+    if (!user || !newMessage.trim() || sending) return
 
-    const messageContent = newMessage.trim()
+    const content = newMessage.trim()
     setNewMessage('')
+    setSending(true)
+    hapticFeedback('light')
 
     const { error } = await supabase.from('messages').insert({
       match_id: parseInt(matchId),
       sender_id: user.id,
-      content: messageContent,
+      content,
     })
 
     if (error) {
-      console.error('Error sending message:', error)
-      setNewMessage(messageContent) // Restore message on error
+      setNewMessage(content)
       hapticFeedback('error')
-    } else {
-      hapticFeedback('light')
     }
+    setSending(false)
+    inputRef.current?.focus()
   }
 
+  const formatTime = (dateString: string) => {
+    return new Date(dateString).toLocaleTimeString('uz', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString)
+    const today = new Date()
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
+
+    if (date.toDateString() === today.toDateString()) return 'Bugun'
+    if (date.toDateString() === yesterday.toDateString()) return 'Kecha'
+    return date.toLocaleDateString('uz', { day: 'numeric', month: 'long' })
+  }
+
+  // Group messages by date
+  const groupedMessages = messages.reduce((groups, message) => {
+    const date = new Date(message.created_at).toDateString()
+    if (!groups[date]) groups[date] = []
+    groups[date].push(message)
+    return groups
+  }, {} as Record<string, Message[]>)
+
   if (loading) {
-    return <FullPageLoader text="Chat yuklanmoqda..." />
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="loading-heart text-5xl">💬</div>
+      </div>
+    )
   }
 
   return (
-    <div className="flex h-screen flex-col bg-[var(--tg-bg)]">
+    <div className="flex h-screen flex-col bg-[var(--app-bg)]">
       {/* Header */}
-      <header className="glass-card flex items-center gap-3 border-b border-[var(--app-outline)] px-4 py-3">
+      <header className="relative z-10 flex items-center gap-3 px-4 py-3 bg-[var(--app-bg)]/95 backdrop-blur-lg border-b border-[var(--app-border)]">
         <button 
           onClick={() => router.push('/matches')}
-          className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-[var(--app-secondary)] transition-colors"
+          className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[var(--app-surface)] transition-colors"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
             <path fillRule="evenodd" d="M7.72 12.53a.75.75 0 010-1.06l7.5-7.5a.75.75 0 111.06 1.06L9.31 12l6.97 6.97a.75.75 0 11-1.06 1.06l-7.5-7.5z" clipRule="evenodd" />
           </svg>
         </button>
-        <div className="flex-1">
-          <h1 className="font-semibold text-[var(--app-text)]">{otherUser?.name || 'Chat'}</h1>
-          <p className="text-xs text-[var(--app-muted)]">Online</p>
+
+        <div className="relative">
+          <div className="w-11 h-11 rounded-full overflow-hidden bg-[var(--app-surface)]">
+            {otherUser?.profile_picture_url ? (
+              <Image src={otherUser.profile_picture_url} alt="" fill className="object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-lg font-bold text-[var(--app-text-muted)]">
+                {otherUser?.name.charAt(0)}
+              </div>
+            )}
+          </div>
+          {/* Online indicator */}
+          <div className="absolute bottom-0 right-0 w-3 h-3 bg-[var(--success-green)] rounded-full border-2 border-[var(--app-bg)]" />
         </div>
+
+        <div className="flex-1 min-w-0">
+          <h1 className="font-semibold text-[var(--app-text)] truncate">{otherUser?.name}</h1>
+          <p className="text-xs text-[var(--success-green)]">
+            {isTyping ? 'yozmoqda...' : 'online'}
+          </p>
+        </div>
+
+        <button className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-[var(--app-surface)] transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-[var(--app-text-secondary)]">
+            <path fillRule="evenodd" d="M10.5 6a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zm0 6a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zm0 6a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0z" clipRule="evenodd" />
+          </svg>
+        </button>
       </header>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 overflow-y-auto px-4 py-4">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="w-16 h-16 rounded-full bg-[var(--app-accent-soft)] flex items-center justify-center mb-4">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8 text-[var(--app-accent)]">
-                <path d="M4.913 2.658c2.075-.27 4.19-.408 6.337-.408 2.147 0 4.262.139 6.337.408 1.922.25 3.291 1.861 3.405 3.727a4.403 4.403 0 00-1.032-.211 50.89 50.89 0 00-8.42 0c-2.358.196-4.04 2.19-4.04 4.434v4.286a4.47 4.47 0 002.433 3.984L7.28 21.53A.75.75 0 016 21v-4.03a48.527 48.527 0 01-1.087-.128C2.905 16.58 1.5 14.833 1.5 12.862V6.638c0-1.97 1.405-3.718 3.413-3.979z" />
-                <path d="M15.75 7.5c-1.376 0-2.739.057-4.086.169C10.124 7.797 9 9.103 9 10.609v4.285c0 1.507 1.128 2.814 2.67 2.94 1.243.102 2.5.157 3.768.165l2.782 2.781a.75.75 0 001.28-.53v-2.39l.33-.026c1.542-.125 2.67-1.433 2.67-2.94v-4.286c0-1.505-1.125-2.811-2.664-2.94A49.392 49.392 0 0015.75 7.5z" />
-              </svg>
+          <div className="flex flex-col items-center justify-center h-full text-center px-8">
+            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[var(--love-pink)] to-[var(--trust-purple)] flex items-center justify-center mb-4">
+              <span className="text-4xl">👋</span>
             </div>
-            <p className="text-[var(--app-muted)]">Hali xabarlar yo'q</p>
-            <p className="text-sm text-[var(--app-muted)] mt-1">Birinchi xabarni yuboring!</p>
+            <h3 className="text-lg font-semibold text-[var(--app-text)] mb-2">
+              Suhbatni boshlang!
+            </h3>
+            <p className="text-sm text-[var(--app-text-muted)] max-w-xs">
+              Siz va {otherUser?.name} bir-biringizni yoqtirdingiz. Birinchi qadamni tashlang! 💕
+            </p>
+
+            {/* Conversation starters */}
+            <div className="mt-6 space-y-2 w-full max-w-xs">
+              <p className="text-xs text-[var(--app-text-muted)] mb-2">Boshlash uchun g'oyalar:</p>
+              {[
+                'Salom! Tanishganimdan xursandman 😊',
+                'Profilingiz juda qiziq ekan! ✨',
+                'Qaysi shahardansiz? 🏙️',
+              ].map((starter, i) => (
+                <button
+                  key={i}
+                  onClick={() => setNewMessage(starter)}
+                  className="w-full p-3 rounded-xl bg-[var(--app-surface)] text-sm text-[var(--app-text-secondary)] text-left hover:bg-[var(--app-surface-elevated)] transition-colors"
+                >
+                  {starter}
+                </button>
+              ))}
+            </div>
           </div>
         ) : (
-          messages.map((message) => {
-            const isOwn = message.sender_id === user?.id
-            return (
-              <div
-                key={message.id}
-                className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${
-                    isOwn
-                      ? 'bg-[var(--app-accent)] text-white rounded-br-md'
-                      : 'glass-card rounded-bl-md'
-                  }`}
-                >
-                  <p className="text-sm leading-relaxed">{message.content}</p>
-                  <p className={`text-[10px] mt-1 ${isOwn ? 'text-white/70' : 'text-[var(--app-muted)]'}`}>
-                    {new Date(message.created_at).toLocaleTimeString('uz', { hour: '2-digit', minute: '2-digit' })}
-                  </p>
+          <>
+            {Object.entries(groupedMessages).map(([date, msgs]) => (
+              <div key={date}>
+                {/* Date separator */}
+                <div className="flex items-center justify-center my-4">
+                  <span className="px-3 py-1 rounded-full bg-[var(--app-surface)] text-xs text-[var(--app-text-muted)]">
+                    {formatDate(msgs[0].created_at)}
+                  </span>
+                </div>
+
+                {/* Messages */}
+                {msgs.map((message, index) => {
+                  const isOwn = message.sender_id === user?.id
+                  const showAvatar = !isOwn && (index === 0 || msgs[index - 1].sender_id !== message.sender_id)
+
+                  return (
+                    <div
+                      key={message.id}
+                      className={`flex mb-2 ${isOwn ? 'justify-end' : 'justify-start'}`}
+                    >
+                      {!isOwn && (
+                        <div className="w-8 mr-2">
+                          {showAvatar && (
+                            <div className="w-8 h-8 rounded-full overflow-hidden bg-[var(--app-surface)]">
+                              {otherUser?.profile_picture_url ? (
+                                <Image src={otherUser.profile_picture_url} alt="" width={32} height={32} className="object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-xs font-bold">
+                                  {otherUser?.name.charAt(0)}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className={`chat-bubble ${isOwn ? 'chat-bubble-sent' : 'chat-bubble-received'}`}>
+                        <p className="text-[15px] leading-relaxed">{message.content}</p>
+                        <p className={`text-[10px] mt-1 ${isOwn ? 'text-white/60' : 'text-[var(--app-text-muted)]'}`}>
+                          {formatTime(message.created_at)}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+
+            {/* Typing indicator */}
+            {isTyping && (
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 rounded-full overflow-hidden bg-[var(--app-surface)]">
+                  {otherUser?.profile_picture_url && (
+                    <Image src={otherUser.profile_picture_url} alt="" width={32} height={32} className="object-cover" />
+                  )}
+                </div>
+                <div className="typing-indicator bg-[var(--app-surface)] rounded-2xl">
+                  <div className="typing-dot" />
+                  <div className="typing-dot" />
+                  <div className="typing-dot" />
                 </div>
               </div>
-            )
-          })
+            )}
+          </>
         )}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Message Input */}
-      <form onSubmit={handleSendMessage} className="glass-card border-t border-[var(--app-outline)] p-4 safe-bottom">
+      {/* Input */}
+      <form onSubmit={handleSend} className="p-4 bg-[var(--app-bg)]/95 backdrop-blur-lg border-t border-[var(--app-border)] safe-bottom">
         <div className="flex items-center gap-3">
-          <input
-            type="text"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            className="flex-1 rounded-full bg-[var(--app-secondary)] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--app-accent)] placeholder:text-[var(--app-muted)]"
-            placeholder="Xabar yozing..."
-          />
+          <div className="flex-1 relative">
+            <input
+              ref={inputRef}
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder="Xabar yozing..."
+              className="input-field pr-12"
+            />
+            <button
+              type="button"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-xl"
+              onClick={() => setNewMessage(prev => prev + '😊')}
+            >
+              😊
+            </button>
+          </div>
+
           <button
             type="submit"
-            disabled={!newMessage.trim()}
-            className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--app-accent)] text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={!newMessage.trim() || sending}
+            className="w-12 h-12 rounded-full bg-gradient-to-r from-[var(--love-pink)] to-[var(--passion-red)] flex items-center justify-center text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:scale-105 active:scale-95"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-              <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
-            </svg>
+            {sending ? (
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
+              </svg>
+            )}
           </button>
         </div>
       </form>
