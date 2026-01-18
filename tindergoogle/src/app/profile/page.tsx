@@ -120,35 +120,64 @@ export default function ProfilePage() {
     setSaving(true)
     hapticFeedback('light')
 
-    if (name !== user.name) {
-      await supabase.from('users').update({ name }).eq('id', user.id)
-      localStorage.setItem('user', JSON.stringify({ ...user, name }))
-    }
+    try {
+      // Update user name if changed
+      if (name !== user.name) {
+        const { error: userError } = await supabase
+          .from('users')
+          .update({ name })
+          .eq('id', user.id)
+        
+        if (userError) {
+          console.error('User update error:', userError)
+        } else {
+          localStorage.setItem('user', JSON.stringify({ ...user, name }))
+        }
+      }
 
-    const { error } = await supabase.from('profiles').upsert({
-      id: user.id,
-      bio,
-      age: parseInt(age),
-      gender: gender || null,
-      looking_for: lookingFor || null,
-      location,
-      height: height ? parseInt(height) : null,
-      weight: weight ? parseInt(weight) : null,
-      job,
-      education,
-      smoking: smoking || null,
-      drinking: drinking || null,
-      interests,
-      profile_picture_url: photos[0] || null,
-      photos: photos.slice(1),
-    })
+      // Prepare profile data - only include basic fields that exist in schema
+      const profileData: any = {
+        id: user.id,
+        bio: bio || null,
+        age: parseInt(age),
+        gender: gender || null,
+        looking_for: lookingFor || null,
+        location: location || null,
+        profile_picture_url: photos[0] || null,
+        photos: photos.slice(1) || [],
+      }
 
-    if (error) {
+      // Add optional fields if they have values
+      if (height) profileData.height = parseInt(height)
+      if (weight) profileData.weight = parseInt(weight)
+      if (job) profileData.job = job
+      if (education) profileData.education = education
+      if (smoking) profileData.smoking = smoking
+      if (drinking) profileData.drinking = drinking
+      if (interests.length > 0) profileData.interests = interests
+
+      console.log('Saving profile:', profileData)
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .upsert(profileData)
+        .select()
+
+      console.log('Save result:', { data, error })
+
+      if (error) {
+        console.error('Profile save error:', error)
+        hapticFeedback('error')
+        const errorMsg = `Xatolik: ${error.message}`
+        showAlert ? showAlert(errorMsg) : alert(errorMsg)
+      } else {
+        hapticFeedback('success')
+        router.push('/swipe')
+      }
+    } catch (err) {
+      console.error('Unexpected error:', err)
       hapticFeedback('error')
-      showAlert ? showAlert('Xatolik yuz berdi') : alert('Xatolik yuz berdi')
-    } else {
-      hapticFeedback('success')
-      router.push('/swipe')
+      showAlert ? showAlert('Kutilmagan xatolik yuz berdi') : alert('Kutilmagan xatolik yuz berdi')
     }
 
     setSaving(false)
