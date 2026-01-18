@@ -16,6 +16,14 @@ export interface Profile {
   profile_picture_url: string | null
   photos: string[] | null
   location: string | null
+  height: number | null  // cm
+  weight: number | null  // kg
+  job: string | null
+  education: string | null
+  interests: string[] | null
+  smoking: 'never' | 'sometimes' | 'often' | null
+  drinking: 'never' | 'sometimes' | 'often' | null
+  verified: boolean
 }
 
 export interface UserWithProfile extends User {

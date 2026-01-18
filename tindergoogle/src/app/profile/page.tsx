@@ -7,36 +7,48 @@ import Image from 'next/image'
 import { useTelegram } from '@/hooks/useTelegram'
 import type { User, Profile } from '@/types'
 
+const INTERESTS = [
+  { emoji: '📚', label: 'Kitob' },
+  { emoji: '🎬', label: 'Kino' },
+  { emoji: '🎵', label: 'Musiqa' },
+  { emoji: '⚽', label: 'Sport' },
+  { emoji: '✈️', label: 'Sayohat' },
+  { emoji: '🍳', label: 'Oshpazlik' },
+  { emoji: '🎮', label: 'O\'yin' },
+  { emoji: '📷', label: 'Fotografiya' },
+  { emoji: '🎨', label: 'San\'at' },
+  { emoji: '💪', label: 'Fitnes' },
+  { emoji: '🐱', label: 'Hayvonlar' },
+  { emoji: '🌱', label: 'Tabiat' },
+]
+
 export default function ProfilePage() {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [activeTab, setActiveTab] = useState(0)
+  
+  // Form state
   const [name, setName] = useState('')
   const [bio, setBio] = useState('')
   const [age, setAge] = useState('')
   const [gender, setGender] = useState<'male' | 'female' | 'other' | ''>('')
   const [lookingFor, setLookingFor] = useState<'male' | 'female' | 'both' | ''>('')
   const [location, setLocation] = useState('')
-  const [uploading, setUploading] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [activeSection, setActiveSection] = useState<'basic' | 'about' | 'preferences'>('basic')
+  const [height, setHeight] = useState('')
+  const [weight, setWeight] = useState('')
+  const [job, setJob] = useState('')
+  const [education, setEducation] = useState('')
+  const [smoking, setSmoking] = useState<'never' | 'sometimes' | 'often' | ''>('')
+  const [drinking, setDrinking] = useState<'never' | 'sometimes' | 'often' | ''>('')
+  const [interests, setInterests] = useState<string[]>([])
+  const [photos, setPhotos] = useState<string[]>([])
+
   const router = useRouter()
   const { hapticFeedback, showAlert } = useTelegram()
 
-  // Calculate profile completion
-  const getProfileCompletion = () => {
-    let completed = 0
-    const total = 6
-    if (name) completed++
-    if (age) completed++
-    if (gender) completed++
-    if (lookingFor) completed++
-    if (bio) completed++
-    if (profile?.profile_picture_url) completed++
-    return Math.round((completed / total) * 100)
-  }
-
-  // Load user
   useEffect(() => {
     const storedUser = localStorage.getItem('user')
     if (!storedUser) {
@@ -48,26 +60,31 @@ export default function ProfilePage() {
     setName(parsedUser.name || '')
   }, [router])
 
-  // Fetch profile
   useEffect(() => {
     if (!user) return
 
     const fetchProfile = async () => {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
         .single()
 
-      if (error && error.code !== 'PGRST116') {
-        console.error('Error fetching profile:', error)
-      } else if (data) {
+      if (data) {
         setProfile(data)
         setBio(data.bio || '')
         setAge(data.age?.toString() || '')
         setGender(data.gender || '')
         setLookingFor(data.looking_for || '')
         setLocation(data.location || '')
+        setHeight(data.height?.toString() || '')
+        setWeight(data.weight?.toString() || '')
+        setJob(data.job || '')
+        setEducation(data.education || '')
+        setSmoking(data.smoking || '')
+        setDrinking(data.drinking || '')
+        setInterests(data.interests || [])
+        setPhotos([data.profile_picture_url, ...(data.photos || [])].filter(Boolean) as string[])
       }
       setLoading(false)
     }
@@ -82,350 +99,379 @@ export default function ProfilePage() {
       showAlert ? showAlert('Yosh kamida 18 bo\'lishi kerak') : alert('Yosh kamida 18 bo\'lishi kerak')
       return
     }
-    if (!gender) {
-      showAlert ? showAlert('Jinsingizni tanlang') : alert('Jinsingizni tanlang')
-      return
-    }
-    if (!lookingFor) {
-      showAlert ? showAlert('Qidirayotganingizni tanlang') : alert('Qidirayotganingizni tanlang')
-      return
-    }
 
     setSaving(true)
     hapticFeedback('light')
 
     if (name !== user.name) {
       await supabase.from('users').update({ name }).eq('id', user.id)
-      const updatedUser = { ...user, name }
-      setUser(updatedUser)
-      localStorage.setItem('user', JSON.stringify(updatedUser))
+      localStorage.setItem('user', JSON.stringify({ ...user, name }))
     }
 
     const { error } = await supabase.from('profiles').upsert({
       id: user.id,
       bio,
       age: parseInt(age),
-      gender,
-      looking_for: lookingFor,
+      gender: gender || null,
+      looking_for: lookingFor || null,
       location,
+      height: height ? parseInt(height) : null,
+      weight: weight ? parseInt(weight) : null,
+      job,
+      education,
+      smoking: smoking || null,
+      drinking: drinking || null,
+      interests,
+      profile_picture_url: photos[0] || null,
+      photos: photos.slice(1),
     })
 
     if (error) {
-      console.error('Error saving profile:', error)
       hapticFeedback('error')
       showAlert ? showAlert('Xatolik yuz berdi') : alert('Xatolik yuz berdi')
     } else {
       hapticFeedback('success')
-      showAlert ? showAlert('✨ Profil saqlandi!') : alert('✨ Profil saqlandi!')
+      showAlert ? showAlert('✨ Saqlandi!') : alert('✨ Saqlandi!')
     }
 
     setSaving(false)
   }
 
-  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (!user) return
-    const file = event.target.files?.[0]
-    if (!file) return
-
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
+    if (!user || !e.target.files?.[0]) return
+    
     setUploading(true)
-    hapticFeedback('light')
+    const file = e.target.files[0]
+    const fileName = `${user.id}-${Date.now()}-${index}.${file.name.split('.').pop()}`
 
-    const fileExt = file.name.split('.').pop()
-    const fileName = `${user.id}-${Date.now()}.${fileExt}`
-
-    const { error: uploadError } = await supabase.storage
+    const { error } = await supabase.storage
       .from('profile-pictures')
       .upload(fileName, file, { upsert: true })
 
-    if (uploadError) {
-      console.error('Error uploading file:', uploadError)
-      hapticFeedback('error')
-    } else {
+    if (!error) {
       const { data } = supabase.storage.from('profile-pictures').getPublicUrl(fileName)
-
-      await supabase.from('profiles').update({ profile_picture_url: data.publicUrl }).eq('id', user.id)
-      setProfile(prev => prev ? { ...prev, profile_picture_url: data.publicUrl } : null)
+      const newPhotos = [...photos]
+      newPhotos[index] = data.publicUrl
+      setPhotos(newPhotos)
       hapticFeedback('success')
+    } else {
+      hapticFeedback('error')
     }
     setUploading(false)
   }
 
+  const toggleInterest = (interest: string) => {
+    hapticFeedback('light')
+    if (interests.includes(interest)) {
+      setInterests(interests.filter(i => i !== interest))
+    } else if (interests.length < 6) {
+      setInterests([...interests, interest])
+    }
+  }
+
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="loading-heart text-6xl">💕</div>
+      <div className="flex min-h-screen items-center justify-center bg-black">
+        <div className="text-5xl animate-pulse">👤</div>
       </div>
     )
   }
 
-  const completion = getProfileCompletion()
+  const tabs = ['Asosiy', 'Haqida', 'Rasmlar']
 
   return (
-    <div className="min-h-screen pb-24">
-      {/* Hero Section */}
-      <div className="relative h-64 bg-gradient-to-br from-[var(--love-pink)] via-[var(--passion-red)] to-[var(--trust-purple)]">
-        <div className="absolute inset-0 bg-black/20" />
-        
-        {/* Back pattern */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-4 left-4 text-6xl">💕</div>
-          <div className="absolute top-12 right-8 text-4xl">✨</div>
-          <div className="absolute bottom-16 left-12 text-3xl">💫</div>
+    <div className="min-h-screen bg-black pb-24">
+      {/* Header */}
+      <header className="sticky top-0 z-20 bg-black/95 backdrop-blur-lg border-b border-white/10">
+        <div className="flex items-center justify-between p-4">
+          <button onClick={() => router.back()} className="text-white">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
+              <path fillRule="evenodd" d="M7.72 12.53a.75.75 0 010-1.06l7.5-7.5a.75.75 0 111.06 1.06L9.31 12l6.97 6.97a.75.75 0 11-1.06 1.06l-7.5-7.5z" clipRule="evenodd" />
+            </svg>
+          </button>
+          <h1 className="text-lg font-bold text-white">Profilni tahrirlash</h1>
+          <button 
+            onClick={handleSave}
+            disabled={saving}
+            className="text-pink-500 font-semibold"
+          >
+            {saving ? '...' : 'Saqlash'}
+          </button>
         </div>
 
-        {/* Profile Picture */}
-        <div className="absolute -bottom-16 left-1/2 -translate-x-1/2">
-          <div className="relative">
-            {/* Animated ring */}
-            <div className="absolute inset-0 rounded-full bg-gradient-to-r from-[var(--love-pink)] to-[var(--trust-purple)] animate-spin" style={{ animationDuration: '3s', padding: '4px' }}>
-              <div className="w-full h-full rounded-full bg-[var(--app-bg)]" />
-            </div>
-            
-            {/* Avatar */}
-            <div className="relative w-32 h-32 rounded-full overflow-hidden border-4 border-[var(--app-bg)]">
-              {profile?.profile_picture_url ? (
-                <Image
-                  src={profile.profile_picture_url}
-                  alt="Profile"
-                  fill
-                  className="object-cover"
-                />
-              ) : (
-                <div className="w-full h-full bg-[var(--app-surface)] flex items-center justify-center">
-                  <span className="text-5xl">{name.charAt(0) || '?'}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Upload button */}
-            <label className="absolute bottom-0 right-0 w-10 h-10 rounded-full bg-[var(--love-pink)] flex items-center justify-center cursor-pointer shadow-lg hover:scale-110 transition-transform">
-              {uploading ? (
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-white">
-                  <path d="M12 9a3.75 3.75 0 100 7.5A3.75 3.75 0 0012 9z" />
-                  <path fillRule="evenodd" d="M9.344 3.071a49.52 49.52 0 015.312 0c.967.052 1.83.585 2.332 1.39l.821 1.317c.24.383.645.643 1.11.71.386.054.77.113 1.152.177 1.432.239 2.429 1.493 2.429 2.909V18a3 3 0 01-3 3H4.5a3 3 0 01-3-3V9.574c0-1.416.997-2.67 2.429-2.909.382-.064.766-.123 1.151-.178a1.56 1.56 0 001.11-.71l.822-1.315a2.942 2.942 0 012.332-1.39zM12 12.75a2.25 2.25 0 100 4.5 2.25 2.25 0 000-4.5z" clipRule="evenodd" />
-                </svg>
-              )}
-              <input type="file" accept="image/*" onChange={handleUpload} disabled={uploading} className="hidden" />
-            </label>
-          </div>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="pt-20 px-4">
-        {/* Completion indicator */}
-        <div className="max-w-md mx-auto mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-[var(--app-text-secondary)]">Profil to'ldirilganligi</span>
-            <span className="text-sm font-bold text-[var(--love-pink)]">{completion}%</span>
-          </div>
-          <div className="h-2 bg-[var(--app-surface)] rounded-full overflow-hidden">
-            <div 
-              className="h-full bg-gradient-to-r from-[var(--love-pink)] to-[var(--trust-purple)] transition-all duration-500"
-              style={{ width: `${completion}%` }}
-            />
-          </div>
-          {completion < 100 && (
-            <p className="mt-2 text-xs text-[var(--app-text-muted)]">
-              💡 To'liq profil 3x ko'proq match oladi
-            </p>
-          )}
-        </div>
-
-        {/* Section tabs */}
-        <div className="max-w-md mx-auto flex gap-2 mb-6 overflow-x-auto pb-2">
-          {[
-            { id: 'basic', label: '👤 Asosiy', emoji: '👤' },
-            { id: 'about', label: '✨ Haqida', emoji: '✨' },
-            { id: 'preferences', label: '💕 Qidiruv', emoji: '💕' },
-          ].map((tab) => (
+        {/* Tabs */}
+        <div className="flex border-b border-white/10">
+          {tabs.map((tab, idx) => (
             <button
-              key={tab.id}
-              onClick={() => setActiveSection(tab.id as any)}
-              className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                activeSection === tab.id
-                  ? 'bg-[var(--love-pink)] text-white'
-                  : 'bg-[var(--app-surface)] text-[var(--app-text-secondary)]'
+              key={tab}
+              onClick={() => setActiveTab(idx)}
+              className={`flex-1 py-3 text-sm font-medium transition-all ${
+                activeTab === idx 
+                  ? 'text-pink-500 border-b-2 border-pink-500' 
+                  : 'text-gray-500'
               }`}
             >
-              {tab.label}
+              {tab}
             </button>
           ))}
         </div>
+      </header>
 
-        {/* Form sections */}
-        <div className="max-w-md mx-auto space-y-4">
-          {activeSection === 'basic' && (
-            <>
-              {/* Name */}
-              <div className="glass-card-elevated p-4">
-                <label className="block text-sm text-[var(--app-text-muted)] mb-2">Ismingiz</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="input-field"
-                  placeholder="Ismingizni kiriting"
-                />
-              </div>
+      <div className="p-4">
+        {/* Tab 0: Basic Info */}
+        {activeTab === 0 && (
+          <div className="space-y-6">
+            {/* Name */}
+            <div>
+              <label className="text-sm text-gray-400 mb-2 block">Ism</label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full p-4 bg-white/5 rounded-2xl text-white border border-white/10 focus:border-pink-500 focus:outline-none"
+                placeholder="Ismingiz"
+              />
+            </div>
 
-              {/* Age */}
-              <div className="glass-card-elevated p-4">
-                <label className="block text-sm text-[var(--app-text-muted)] mb-2">Yoshingiz</label>
+            {/* Age & Gender */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm text-gray-400 mb-2 block">Yosh</label>
                 <input
                   type="number"
-                  min="18"
-                  max="100"
                   value={age}
                   onChange={(e) => setAge(e.target.value)}
-                  className="input-field"
+                  className="w-full p-4 bg-white/5 rounded-2xl text-white border border-white/10 focus:border-pink-500 focus:outline-none"
                   placeholder="25"
                 />
               </div>
-
-              {/* Gender */}
-              <div className="glass-card-elevated p-4">
-                <label className="block text-sm text-[var(--app-text-muted)] mb-3">Jinsingiz</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { value: 'male', label: 'Erkak', emoji: '👨' },
-                    { value: 'female', label: 'Ayol', emoji: '👩' },
-                    { value: 'other', label: 'Boshqa', emoji: '🧑' },
-                  ].map((option) => (
-                    <button
-                      key={option.value}
-                      onClick={() => setGender(option.value as typeof gender)}
-                      className={`p-3 rounded-xl text-center transition-all ${
-                        gender === option.value
-                          ? 'bg-[var(--love-pink)] text-white scale-105'
-                          : 'bg-[var(--app-surface)] text-[var(--app-text)]'
-                      }`}
-                    >
-                      <div className="text-2xl mb-1">{option.emoji}</div>
-                      <div className="text-xs font-medium">{option.label}</div>
-                    </button>
-                  ))}
-                </div>
+              <div>
+                <label className="text-sm text-gray-400 mb-2 block">Jins</label>
+                <select
+                  value={gender}
+                  onChange={(e) => setGender(e.target.value as any)}
+                  className="w-full p-4 bg-white/5 rounded-2xl text-white border border-white/10 focus:border-pink-500 focus:outline-none appearance-none"
+                >
+                  <option value="">Tanlang</option>
+                  <option value="male">Erkak</option>
+                  <option value="female">Ayol</option>
+                  <option value="other">Boshqa</option>
+                </select>
               </div>
+            </div>
 
-              {/* Location */}
-              <div className="glass-card-elevated p-4">
-                <label className="block text-sm text-[var(--app-text-muted)] mb-2">📍 Shahar</label>
+            {/* Height & Weight */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm text-gray-400 mb-2 block">Bo'y (cm)</label>
                 <input
-                  type="text"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  className="input-field"
-                  placeholder="Toshkent"
+                  type="number"
+                  value={height}
+                  onChange={(e) => setHeight(e.target.value)}
+                  className="w-full p-4 bg-white/5 rounded-2xl text-white border border-white/10 focus:border-pink-500 focus:outline-none"
+                  placeholder="175"
                 />
               </div>
-            </>
-          )}
-
-          {activeSection === 'about' && (
-            <>
-              {/* Bio */}
-              <div className="glass-card-elevated p-4">
-                <label className="block text-sm text-[var(--app-text-muted)] mb-2">O'zingiz haqingizda</label>
-                <textarea
-                  value={bio}
-                  onChange={(e) => setBio(e.target.value)}
-                  rows={4}
-                  maxLength={500}
-                  className="input-field resize-none"
-                  placeholder="O'zingizni qiziqarli qilib tasvirlang... 💫"
+              <div>
+                <label className="text-sm text-gray-400 mb-2 block">Vazn (kg)</label>
+                <input
+                  type="number"
+                  value={weight}
+                  onChange={(e) => setWeight(e.target.value)}
+                  className="w-full p-4 bg-white/5 rounded-2xl text-white border border-white/10 focus:border-pink-500 focus:outline-none"
+                  placeholder="70"
                 />
-                <div className="flex justify-between mt-2">
-                  <p className="text-xs text-[var(--app-text-muted)]">
-                    💡 Qiziqish va xobbilar haqida yozing
-                  </p>
-                  <p className="text-xs text-[var(--app-text-muted)]">{bio.length}/500</p>
-                </div>
               </div>
+            </div>
 
-              {/* Bio tips */}
-              <div className="bg-[var(--app-surface)] rounded-2xl p-4 border border-[var(--app-border)]">
-                <h4 className="font-semibold text-[var(--app-text)] mb-3">✨ Yaxshi bio yozish sirlari:</h4>
-                <ul className="space-y-2 text-sm text-[var(--app-text-secondary)]">
-                  <li className="flex items-start gap-2">
-                    <span className="text-[var(--success-green)]">✓</span>
-                    Xobbiylaringizni aytib bering
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-[var(--success-green)]">✓</span>
-                    Hazil bilan yozing - kulguli bio 2x ko'p match oladi
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-[var(--success-green)]">✓</span>
-                    Nimani qidirayotganingizni ayting
-                  </li>
-                </ul>
+            {/* Location */}
+            <div>
+              <label className="text-sm text-gray-400 mb-2 block">📍 Joylashuv</label>
+              <input
+                type="text"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                className="w-full p-4 bg-white/5 rounded-2xl text-white border border-white/10 focus:border-pink-500 focus:outline-none"
+                placeholder="Toshkent, Uzbekistan"
+              />
+            </div>
+
+            {/* Looking For */}
+            <div>
+              <label className="text-sm text-gray-400 mb-3 block">Qidirayapsiz</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { value: 'male', label: '👨 Erkak' },
+                  { value: 'female', label: '👩 Ayol' },
+                  { value: 'both', label: '👥 Hammasi' },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setLookingFor(opt.value as any)}
+                    className={`p-4 rounded-2xl text-sm font-medium transition-all ${
+                      lookingFor === opt.value
+                        ? 'bg-pink-500 text-white'
+                        : 'bg-white/5 text-white border border-white/10'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
               </div>
-            </>
-          )}
+            </div>
+          </div>
+        )}
 
-          {activeSection === 'preferences' && (
-            <>
-              {/* Looking For */}
-              <div className="glass-card-elevated p-4">
-                <label className="block text-sm text-[var(--app-text-muted)] mb-3">Qidirayapsiz</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { value: 'male', label: 'Erkak', emoji: '👨' },
-                    { value: 'female', label: 'Ayol', emoji: '👩' },
-                    { value: 'both', label: 'Hammasi', emoji: '👥' },
-                  ].map((option) => (
-                    <button
-                      key={option.value}
-                      onClick={() => setLookingFor(option.value as typeof lookingFor)}
-                      className={`p-3 rounded-xl text-center transition-all ${
-                        lookingFor === option.value
-                          ? 'bg-[var(--love-pink)] text-white scale-105'
-                          : 'bg-[var(--app-surface)] text-[var(--app-text)]'
-                      }`}
-                    >
-                      <div className="text-2xl mb-1">{option.emoji}</div>
-                      <div className="text-xs font-medium">{option.label}</div>
-                    </button>
-                  ))}
-                </div>
+        {/* Tab 1: About */}
+        {activeTab === 1 && (
+          <div className="space-y-6">
+            {/* Bio */}
+            <div>
+              <label className="text-sm text-gray-400 mb-2 block">O'zingiz haqingizda</label>
+              <textarea
+                value={bio}
+                onChange={(e) => setBio(e.target.value)}
+                rows={4}
+                maxLength={500}
+                className="w-full p-4 bg-white/5 rounded-2xl text-white border border-white/10 focus:border-pink-500 focus:outline-none resize-none"
+                placeholder="O'zingiz haqingizda qiziqarli ma'lumot yozing..."
+              />
+              <p className="text-xs text-gray-500 mt-1 text-right">{bio.length}/500</p>
+            </div>
+
+            {/* Job & Education */}
+            <div>
+              <label className="text-sm text-gray-400 mb-2 block">💼 Ish</label>
+              <input
+                type="text"
+                value={job}
+                onChange={(e) => setJob(e.target.value)}
+                className="w-full p-4 bg-white/5 rounded-2xl text-white border border-white/10 focus:border-pink-500 focus:outline-none"
+                placeholder="Dizayner"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm text-gray-400 mb-2 block">🎓 Ta'lim</label>
+              <input
+                type="text"
+                value={education}
+                onChange={(e) => setEducation(e.target.value)}
+                className="w-full p-4 bg-white/5 rounded-2xl text-white border border-white/10 focus:border-pink-500 focus:outline-none"
+                placeholder="TATU"
+              />
+            </div>
+
+            {/* Interests */}
+            <div>
+              <label className="text-sm text-gray-400 mb-3 block">
+                Qiziqishlar ({interests.length}/6)
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {INTERESTS.map((item) => (
+                  <button
+                    key={item.label}
+                    onClick={() => toggleInterest(item.label)}
+                    className={`px-4 py-2 rounded-full text-sm transition-all ${
+                      interests.includes(item.label)
+                        ? 'bg-pink-500 text-white'
+                        : 'bg-white/5 text-white border border-white/10'
+                    }`}
+                  >
+                    {item.emoji} {item.label}
+                  </button>
+                ))}
               </div>
+            </div>
 
-              {/* Psychological nudge */}
-              <div className="bg-gradient-to-r from-[var(--love-pink)]/10 to-[var(--trust-purple)]/10 rounded-2xl p-4 border border-[var(--love-pink)]/20">
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl">💡</span>
-                  <div>
-                    <h4 className="font-semibold text-[var(--app-text)]">Bilasizmi?</h4>
-                    <p className="text-sm text-[var(--app-text-secondary)] mt-1">
-                      To'liq profilga ega foydalanuvchilar 3 barobar ko'proq match oladi va suhbatlar uzoqroq davom etadi.
-                    </p>
-                  </div>
-                </div>
+            {/* Smoking & Drinking */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm text-gray-400 mb-2 block">🚬 Chekish</label>
+                <select
+                  value={smoking}
+                  onChange={(e) => setSmoking(e.target.value as any)}
+                  className="w-full p-4 bg-white/5 rounded-2xl text-white border border-white/10 focus:border-pink-500 focus:outline-none appearance-none"
+                >
+                  <option value="">Tanlang</option>
+                  <option value="never">Hech qachon</option>
+                  <option value="sometimes">Ba'zan</option>
+                  <option value="often">Tez-tez</option>
+                </select>
               </div>
-            </>
-          )}
-        </div>
+              <div>
+                <label className="text-sm text-gray-400 mb-2 block">🍷 Ichish</label>
+                <select
+                  value={drinking}
+                  onChange={(e) => setDrinking(e.target.value as any)}
+                  className="w-full p-4 bg-white/5 rounded-2xl text-white border border-white/10 focus:border-pink-500 focus:outline-none appearance-none"
+                >
+                  <option value="">Tanlang</option>
+                  <option value="never">Hech qachon</option>
+                  <option value="sometimes">Ba'zan</option>
+                  <option value="often">Tez-tez</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
 
-        {/* Save Button */}
-        <div className="max-w-md mx-auto mt-8 px-4">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="btn-primary w-full text-lg"
-          >
-            {saving ? (
-              <span className="flex items-center justify-center gap-2">
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Saqlanmoqda...
-              </span>
-            ) : (
-              '✨ Saqlash'
+        {/* Tab 2: Photos */}
+        {activeTab === 2 && (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-400">4 tagacha rasm yuklang. Birinchi rasm asosiy bo'ladi.</p>
+            
+            <div className="grid grid-cols-2 gap-3">
+              {[0, 1, 2, 3].map((index) => (
+                <label
+                  key={index}
+                  className={`aspect-[3/4] rounded-2xl overflow-hidden cursor-pointer relative ${
+                    photos[index] ? '' : 'border-2 border-dashed border-white/20 bg-white/5'
+                  }`}
+                >
+                  {photos[index] ? (
+                    <>
+                      <Image
+                        src={photos[index]}
+                        alt=""
+                        fill
+                        className="object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black/30 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <span className="text-white text-sm">O'zgartirish</span>
+                      </div>
+                      {index === 0 && (
+                        <div className="absolute top-2 left-2 px-2 py-1 bg-pink-500 rounded-full">
+                          <span className="text-xs text-white font-medium">Asosiy</span>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8 mb-2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                      </svg>
+                      <span className="text-xs">Rasm {index + 1}</span>
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handlePhotoUpload(e, index)}
+                    className="hidden"
+                    disabled={uploading}
+                  />
+                </label>
+              ))}
+            </div>
+
+            {uploading && (
+              <div className="text-center py-4">
+                <div className="text-pink-500 animate-pulse">Yuklanmoqda...</div>
+              </div>
             )}
-          </button>
-        </div>
+          </div>
+        )}
       </div>
     </div>
   )

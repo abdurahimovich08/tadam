@@ -29,8 +29,16 @@ CREATE TABLE profiles (
   gender VARCHAR(10) CHECK (gender IN ('male', 'female', 'other')),
   looking_for VARCHAR(10) CHECK (looking_for IN ('male', 'female', 'both')),
   profile_picture_url TEXT,
-  photos TEXT[], -- Array of photo URLs
+  photos TEXT[] DEFAULT '{}', -- Up to 4 photo URLs
   location VARCHAR(100),
+  height INT CHECK (height >= 100 AND height <= 250), -- cm
+  weight INT CHECK (weight >= 30 AND weight <= 300), -- kg
+  job VARCHAR(100),
+  education VARCHAR(100),
+  interests TEXT[] DEFAULT '{}', -- Array of interests/tags
+  smoking VARCHAR(20) CHECK (smoking IN ('never', 'sometimes', 'often')),
+  drinking VARCHAR(20) CHECK (drinking IN ('never', 'sometimes', 'often')),
+  verified BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
