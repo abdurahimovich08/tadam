@@ -29,7 +29,7 @@ export default function RootLayout({
   const pathname = usePathname();
 
   // Pages where bottom nav should be hidden
-  const hideNavPages = ['/chat'];
+  const hideNavPages = ['/chat', '/profile'];
   const showNav = !hideNavPages.some(page => pathname.startsWith(page)) && pathname !== '/';
 
   useEffect(() => {
