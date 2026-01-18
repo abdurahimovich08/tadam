@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+:root {
+  --app-bg: #f8f4ef;
+  --app-surface: #ffffff;
+  --app-text: #0f172a;
+  --app-muted: #667085;
+  --app-accent: #ff6b4a;
+  --app-accent-soft: rgba(255, 107, 74, 0.18);
+  --app-link: #2563eb;
+  --app-secondary: #f1ece5;
+  --app-outline: rgba(15, 23, 42, 0.12);
+  --app-shadow: 0 18px 45px rgba(15, 23, 42, 0.12);
+  --tg-bg: var(--app-bg);
+  --tg-text: var(--app-text);
+  --tg-hint: var(--app-muted);
+  --tg-link: var(--app-link);
+  --tg-button: var(--app-accent);
+  --tg-button-text: #ffffff;
+  --tg-secondary-bg: var(--app-secondary);
+}
+
+@theme inline {
+  --color-background: var(--tg-bg);
+  --color-foreground: var(--tg-text);
+  --font-sans: var(--font-manrope);
+  --font-mono: var(--font-space-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --app-bg: #0b0f1a;
+    --app-surface: #101827;
+    --app-text: #e2e8f0;
+    --app-muted: #94a3b8;
+    --app-accent: #ff7a59;
+    --app-accent-soft: rgba(255, 122, 89, 0.2);
+    --app-link: #38bdf8;
+    --app-secondary: #0f172a;
+    --app-outline: rgba(148, 163, 184, 0.2);
+    --app-shadow: 0 18px 45px rgba(2, 6, 23, 0.45);
+    --tg-button-text: #0b0f1a;
+  }
+}
+
+body {
+  min-height: 100%;
+  background: var(--tg-bg);
+  color: var(--tg-text);
+  font-family: var(--font-manrope), "Segoe UI", system-ui, sans-serif;
+}
+
+.font-display {
+  font-family: var(--font-space-grotesk), "Segoe UI", system-ui, sans-serif;
+}
+
+.app-shell {
+  position: relative;
+  min-height: 100vh;
+  background: linear-gradient(180deg, var(--tg-bg) 0%, var(--tg-secondary-bg) 100%);
+  isolation: isolate;
+}
+
+.app-shell::before,
+.app-shell::after {
+  content: "";
+  position: fixed;
+  inset: auto;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.app-shell::before {
+  top: -10%;
+  left: -10%;
+  width: 55vw;
+  height: 55vw;
+  background: radial-gradient(circle, var(--app-accent-soft) 0%, rgba(255, 255, 255, 0) 70%);
+}
+
+.app-shell::after {
+  bottom: -20%;
+  right: -5%;
+  width: 45vw;
+  height: 45vw;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.18) 0%, rgba(255, 255, 255, 0) 70%);
+}
+
+.glass-card {
+  background: var(--app-surface);
+  background: color-mix(in srgb, var(--app-surface) 88%, transparent);
+  border: 1px solid var(--app-outline);
+  box-shadow: var(--app-shadow);
+  backdrop-filter: blur(18px);
+}
+
+.safe-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom), 16px);
+}
