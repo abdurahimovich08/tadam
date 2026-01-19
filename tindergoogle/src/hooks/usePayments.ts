@@ -91,9 +91,9 @@ export function usePayments() {
 
   // Purchase Stars via Telegram
   const purchaseStars = useCallback(async (
+    userId: string,
     packageId: string,
-    starsAmount: number,
-    priceStars: number,
+    telegramUserId: number,
     onSuccess?: () => void
   ) => {
     if (!webApp) {
@@ -105,36 +105,45 @@ export function usePayments() {
     hapticFeedback?.('light')
 
     try {
-      // In production, you would call your backend to create an invoice
-      // and get the invoice URL from Telegram Bot API
-      // For now, we'll show a placeholder
-      
-      // Example of how it would work:
-      // const response = await fetch('/api/create-invoice', {
-      //   method: 'POST',
-      //   body: JSON.stringify({ packageId, starsAmount, priceStars }),
-      // })
-      // const { invoiceUrl } = await response.json()
-      // webApp.openInvoice(invoiceUrl, (status) => { ... })
+      // Call backend to create invoice
+      const response = await fetch('/api/payments/create-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, packageId, telegramUserId }),
+      })
 
-      // Placeholder for demo
-      showAlert?.(`${starsAmount} Stars sotib olish - ${priceStars} Telegram Stars`)
-      
-      // Simulate success for demo
-      onSuccess?.()
-      hapticFeedback?.('success')
+      const data = await response.json()
+
+      if (!data.success) {
+        throw new Error(data.error || 'Invoice yaratishda xatolik')
+      }
+
+      // Open Telegram payment
+      webApp.openInvoice(data.invoiceUrl, (status) => {
+        if (status === 'paid') {
+          hapticFeedback?.('success')
+          showAlert?.(`🎉 ${data.package.stars} Stars muvaffaqiyatli sotib olindi!`)
+          onSuccess?.()
+        } else if (status === 'cancelled') {
+          hapticFeedback?.('light')
+        } else if (status === 'failed') {
+          hapticFeedback?.('error')
+          showAlert?.('To\'lov amalga oshmadi')
+        }
+        setProcessing(false)
+      })
+
       return true
     } catch (err) {
       console.error('Purchase error:', err)
       hapticFeedback?.('error')
-      showAlert?.('Sotib olishda xatolik yuz berdi')
-      return false
-    } finally {
+      showAlert?.(err instanceof Error ? err.message : 'Sotib olishda xatolik yuz berdi')
       setProcessing(false)
+      return false
     }
   }, [webApp, hapticFeedback, showAlert])
 
-  // Send tip
+  // Send tip via API
   const sendTip = useCallback(async (
     senderId: string,
     receiverId: string,
@@ -145,17 +154,31 @@ export function usePayments() {
     setProcessing(true)
     hapticFeedback?.('light')
 
-    const result = await payments.sendTip(senderId, receiverId, amount, message, isAnonymous)
+    try {
+      const response = await fetch('/api/payments/send-tip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ senderId, receiverId, amount, message, isAnonymous }),
+      })
 
-    if (result.success) {
-      hapticFeedback?.('success')
-    } else {
+      const result = await response.json()
+
+      if (result.success) {
+        hapticFeedback?.('success')
+        showAlert?.('💝 Tip muvaffaqiyatli yuborildi!')
+        return { success: true }
+      } else {
+        hapticFeedback?.('error')
+        showAlert?.(result.error || 'Xatolik yuz berdi')
+        return { success: false, error: result.error }
+      }
+    } catch (err) {
       hapticFeedback?.('error')
-      showAlert?.(result.error || 'Xatolik yuz berdi')
+      showAlert?.('Server xatoligi')
+      return { success: false, error: 'Server xatoligi' }
+    } finally {
+      setProcessing(false)
     }
-
-    setProcessing(false)
-    return result
   }, [hapticFeedback, showAlert])
 
   // Send gift

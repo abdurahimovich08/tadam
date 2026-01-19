@@ -8,11 +8,12 @@ import type { User, StarPackage, Transaction } from '@/types'
 
 export default function WalletPage() {
   const [user, setUser] = useState<User | null>(null)
+  const [telegramUserId, setTelegramUserId] = useState<number | null>(null)
   const [activeTab, setActiveTab] = useState<'balance' | 'earn' | 'history'>('balance')
   const [showBuyModal, setShowBuyModal] = useState(false)
   const [showWithdrawModal, setShowWithdrawModal] = useState(false)
   const router = useRouter()
-  const { hapticFeedback } = useTelegram()
+  const { hapticFeedback, webApp } = useTelegram()
 
   useEffect(() => {
     const storedUser = localStorage.getItem('user')
@@ -21,7 +22,12 @@ export default function WalletPage() {
       return
     }
     setUser(JSON.parse(storedUser))
-  }, [router])
+    
+    // Get Telegram user ID
+    if (webApp?.initDataUnsafe?.user?.id) {
+      setTelegramUserId(webApp.initDataUnsafe.user.id)
+    }
+  }, [router, webApp])
 
   const { wallet, loading: walletLoading, refetch: refetchWallet } = useWallet(user?.id)
   const { packages } = useStarPackages()
@@ -37,8 +43,11 @@ export default function WalletPage() {
   }
 
   const handleBuyPackage = async (pkg: StarPackage) => {
+    if (!user || !telegramUserId) {
+      return
+    }
     hapticFeedback?.('light')
-    await purchaseStars(pkg.id, pkg.stars_amount, pkg.price_stars, () => {
+    await purchaseStars(user.id, pkg.id, telegramUserId, () => {
       refetchWallet()
       setShowBuyModal(false)
     })
