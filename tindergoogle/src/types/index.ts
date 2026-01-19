@@ -131,6 +131,7 @@ export interface CreatorProfile {
   payout_method: 'telegram_stars' | 'card' | 'crypto' | null
   payout_details: Record<string, unknown>
   min_payout_amount: number
+  creator_verified?: boolean
   created_at: string
   updated_at: string
 }

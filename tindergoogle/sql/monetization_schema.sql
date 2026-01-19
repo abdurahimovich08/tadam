@@ -103,6 +103,9 @@ CREATE TABLE IF NOT EXISTS creator_profiles (
   total_subscribers INT DEFAULT 0,
   total_content_sold INT DEFAULT 0,
   
+  -- Verification
+  creator_verified BOOLEAN DEFAULT false,
+  
   -- Payout settings
   payout_method VARCHAR(30) CHECK (payout_method IN (
     'telegram_stars', 'card', 'crypto'
