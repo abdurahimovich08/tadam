@@ -66,7 +66,16 @@ export async function getStarPackages(): Promise<StarPackage[]> {
     console.error('Error fetching star packages:', error)
     return []
   }
-  return data || []
+  
+  // Remove duplicates by name (in case INSERT ran multiple times)
+  const uniquePackages = data?.reduce((acc: StarPackage[], pkg) => {
+    if (!acc.find(p => p.name === pkg.name)) {
+      acc.push(pkg)
+    }
+    return acc
+  }, []) || []
+  
+  return uniquePackages
 }
 
 // ========================================
@@ -141,6 +150,7 @@ export async function getTransactionHistory(
     .from('transactions')
     .select('*')
     .eq('user_id', userId)
+    .eq('status', 'completed') // Only show completed transactions
     .order('created_at', { ascending: false })
     .limit(limit)
 

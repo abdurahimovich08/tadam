@@ -341,8 +341,14 @@ export default function WalletPage() {
 
       {/* Buy Stars Modal */}
       {showBuyModal && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 animate-fadeIn">
-          <div className="w-full max-w-lg bg-gray-900 rounded-t-3xl p-6 animate-slideUp">
+        <div 
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 animate-fadeIn"
+          onClick={() => setShowBuyModal(false)}
+        >
+          <div 
+            className="w-full max-w-lg bg-gray-900 rounded-t-3xl p-6 animate-slideUp"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-white">Stars sotib olish</h2>
               <button
@@ -394,8 +400,14 @@ export default function WalletPage() {
 
       {/* Withdraw Modal */}
       {showWithdrawModal && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 animate-fadeIn">
-          <div className="w-full max-w-lg bg-gray-900 rounded-t-3xl p-6 animate-slideUp">
+        <div 
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 animate-fadeIn"
+          onClick={() => setShowWithdrawModal(false)}
+        >
+          <div 
+            className="w-full max-w-lg bg-gray-900 rounded-t-3xl p-6 animate-slideUp"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-white">Pul yechib olish</h2>
               <button
