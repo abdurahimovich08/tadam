@@ -61,13 +61,22 @@ export async function POST(request: NextRequest) {
 
     console.log('Package found:', pkg)
 
-    // Create invoice payload for Telegram
-    const payload = JSON.stringify({
+    // Create invoice payload for Telegram (max 128 bytes!)
+    // Format: "userId|packageId" - short and simple
+    const shortUserId = userId.split('-')[0] // First part of UUID
+    const shortPackageId = packageId.split('-')[0]
+    const payload = `${shortUserId}|${shortPackageId}|${Date.now()}`
+    
+    // Store full data in metadata for webhook to use
+    const invoiceMetadata = {
       userId,
       packageId,
       starsAmount: pkg.stars_amount,
       timestamp: Date.now(),
-    })
+      payload, // Reference to match webhook
+    }
+    
+    console.log('Payload (must be <128 bytes):', payload, 'Length:', payload.length)
 
     // Create invoice via Telegram Bot API
     const invoiceBody = {
@@ -111,7 +120,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Store pending transaction (optional, don't fail if it errors)
+    // Store pending transaction with full metadata (optional, don't fail if it errors)
     try {
       await supabase
         .from('transactions')
@@ -124,9 +133,8 @@ export async function POST(request: NextRequest) {
           status: 'pending',
           description: `Stars sotib olish: ${pkg.name}`,
           metadata: {
-            packageId,
+            ...invoiceMetadata,
             telegramUserId,
-            invoicePayload: payload,
           },
         })
     } catch (txError) {

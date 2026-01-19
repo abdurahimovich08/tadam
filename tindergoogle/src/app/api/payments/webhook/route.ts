@@ -86,35 +86,56 @@ export async function POST(request: NextRequest) {
       const query = update.pre_checkout_query
       
       try {
-        // Parse the payload
-        const payload = JSON.parse(query.invoice_payload)
+        // Payload format: "shortUserId|shortPackageId|timestamp"
+        const payloadParts = query.invoice_payload.split('|')
         
-        // Verify package exists
-        const { data: pkg } = await supabase
-          .from('star_packages')
+        if (payloadParts.length < 2) {
+          await answerPreCheckoutQuery(query.id, false, 'Noto\'g\'ri payload formati')
+          return NextResponse.json({ ok: true })
+        }
+
+        // Find pending transaction to verify
+        const { data: pendingTx } = await supabase
+          .from('transactions')
           .select('*')
-          .eq('id', payload.packageId)
+          .eq('status', 'pending')
+          .eq('type', 'purchase')
+          .filter('metadata->>payload', 'eq', query.invoice_payload)
           .single()
 
-        if (!pkg) {
-          await answerPreCheckoutQuery(query.id, false, 'Paket topilmadi')
-          return NextResponse.json({ ok: true })
+        if (pendingTx) {
+          // Transaction found, approve
+          await answerPreCheckoutQuery(query.id, true)
+        } else {
+          // Fallback: check if user and package exist by short IDs
+          const shortUserId = payloadParts[0]
+          const shortPackageId = payloadParts[1]
+          
+          const { data: user } = await supabase
+            .from('users')
+            .select('id')
+            .ilike('id', `${shortUserId}%`)
+            .single()
+            
+          const { data: pkg } = await supabase
+            .from('star_packages')
+            .select('id')
+            .ilike('id', `${shortPackageId}%`)
+            .single()
+
+          if (!user) {
+            await answerPreCheckoutQuery(query.id, false, 'Foydalanuvchi topilmadi')
+            return NextResponse.json({ ok: true })
+          }
+
+          if (!pkg) {
+            await answerPreCheckoutQuery(query.id, false, 'Paket topilmadi')
+            return NextResponse.json({ ok: true })
+          }
+
+          // All checks passed, confirm pre-checkout
+          await answerPreCheckoutQuery(query.id, true)
         }
-
-        // Verify user exists
-        const { data: user } = await supabase
-          .from('users')
-          .select('id')
-          .eq('id', payload.userId)
-          .single()
-
-        if (!user) {
-          await answerPreCheckoutQuery(query.id, false, 'Foydalanuvchi topilmadi')
-          return NextResponse.json({ ok: true })
-        }
-
-        // All checks passed, confirm pre-checkout
-        await answerPreCheckoutQuery(query.id, true)
         
       } catch (error) {
         console.error('Pre-checkout error:', error)
@@ -130,8 +151,51 @@ export async function POST(request: NextRequest) {
       const chatId = update.message.chat?.id
 
       try {
-        // Parse payload
-        const payload = JSON.parse(payment.invoice_payload)
+        // Parse short payload format: "shortUserId|shortPackageId|timestamp"
+        const payloadParts = payment.invoice_payload.split('|')
+        
+        // Find the pending transaction with this payload
+        const { data: pendingTx } = await supabase
+          .from('transactions')
+          .select('*')
+          .eq('status', 'pending')
+          .eq('type', 'purchase')
+          .filter('metadata->>payload', 'eq', payment.invoice_payload)
+          .single()
+
+        let payload: { userId: string; packageId: string; starsAmount?: number }
+        
+        if (pendingTx?.metadata) {
+          // Use full data from pending transaction
+          payload = {
+            userId: pendingTx.metadata.userId || pendingTx.user_id,
+            packageId: pendingTx.metadata.packageId,
+            starsAmount: pendingTx.metadata.starsAmount,
+          }
+        } else {
+          // Fallback: try to find user and package by short IDs
+          const shortUserId = payloadParts[0]
+          const shortPackageId = payloadParts[1]
+          
+          const { data: user } = await supabase
+            .from('users')
+            .select('id')
+            .ilike('id', `${shortUserId}%`)
+            .single()
+            
+          const { data: pkg } = await supabase
+            .from('star_packages')
+            .select('id')
+            .ilike('id', `${shortPackageId}%`)
+            .single()
+            
+          if (!user || !pkg) {
+            console.error('Could not find user or package from payload:', payment.invoice_payload)
+            return NextResponse.json({ ok: true })
+          }
+          
+          payload = { userId: user.id, packageId: pkg.id }
+        }
         
         // Get package details
         const { data: pkg } = await supabase
