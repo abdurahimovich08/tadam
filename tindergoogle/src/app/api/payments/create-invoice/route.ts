@@ -6,7 +6,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN
 
 interface CreateInvoiceRequest {
   userId: string
@@ -16,8 +16,19 @@ interface CreateInvoiceRequest {
 
 export async function POST(request: NextRequest) {
   try {
+    // Check if bot token is configured
+    if (!TELEGRAM_BOT_TOKEN) {
+      console.error('TELEGRAM_BOT_TOKEN is not set')
+      return NextResponse.json(
+        { error: 'Bot token sozlanmagan. Admin bilan bog\'laning.' },
+        { status: 500 }
+      )
+    }
+
     const body: CreateInvoiceRequest = await request.json()
     const { userId, packageId, telegramUserId } = body
+
+    console.log('Create invoice request:', { userId, packageId, telegramUserId })
 
     if (!userId || !packageId || !telegramUserId) {
       return NextResponse.json(
@@ -33,12 +44,22 @@ export async function POST(request: NextRequest) {
       .eq('id', packageId)
       .single()
 
-    if (pkgError || !pkg) {
+    if (pkgError) {
+      console.error('Package fetch error:', pkgError)
+      return NextResponse.json(
+        { error: `Paket topilmadi: ${pkgError.message}` },
+        { status: 404 }
+      )
+    }
+
+    if (!pkg) {
       return NextResponse.json(
         { error: 'Paket topilmadi' },
         { status: 404 }
       )
     }
+
+    console.log('Package found:', pkg)
 
     // Create invoice payload for Telegram
     const payload = JSON.stringify({
@@ -49,6 +70,21 @@ export async function POST(request: NextRequest) {
     })
 
     // Create invoice via Telegram Bot API
+    const invoiceBody = {
+      title: `${pkg.stars_amount} Stars`,
+      description: `${pkg.name} paketi - ${pkg.stars_amount} Stars${pkg.bonus_percent > 0 ? ` (+${pkg.bonus_percent}% bonus)` : ''}`,
+      payload: payload,
+      currency: 'XTR', // Telegram Stars currency code
+      prices: [
+        {
+          label: `${pkg.stars_amount} Stars`,
+          amount: pkg.price_stars, // Amount in Telegram Stars
+        },
+      ],
+    }
+
+    console.log('Sending to Telegram:', invoiceBody)
+
     const invoiceResponse = await fetch(
       `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/createInvoiceLink`,
       {
@@ -56,51 +92,45 @@ export async function POST(request: NextRequest) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          title: `${pkg.stars_amount} Stars`,
-          description: `${pkg.name} paketi - ${pkg.stars_amount} Stars${pkg.bonus_percent > 0 ? ` (+${pkg.bonus_percent}% bonus)` : ''}`,
-          payload: payload,
-          currency: 'XTR', // Telegram Stars currency code
-          prices: [
-            {
-              label: `${pkg.stars_amount} Stars`,
-              amount: pkg.price_stars, // Amount in Telegram Stars
-            },
-          ],
-        }),
+        body: JSON.stringify(invoiceBody),
       }
     )
 
     const invoiceData = await invoiceResponse.json()
+    console.log('Telegram response:', invoiceData)
 
     if (!invoiceData.ok) {
       console.error('Telegram API error:', invoiceData)
       return NextResponse.json(
-        { error: 'Invoice yaratishda xatolik', details: invoiceData.description },
+        { 
+          error: 'Invoice yaratishda xatolik', 
+          details: invoiceData.description,
+          telegramError: invoiceData
+        },
         { status: 500 }
       )
     }
 
-    // Store pending transaction
-    const { error: txError } = await supabase
-      .from('transactions')
-      .insert({
-        user_id: userId,
-        type: 'purchase',
-        amount: pkg.stars_amount,
-        fee: 0,
-        net_amount: pkg.stars_amount,
-        status: 'pending',
-        description: `Stars sotib olish: ${pkg.name}`,
-        metadata: {
-          packageId,
-          telegramUserId,
-          invoicePayload: payload,
-        },
-      })
-
-    if (txError) {
-      console.error('Transaction creation error:', txError)
+    // Store pending transaction (optional, don't fail if it errors)
+    try {
+      await supabase
+        .from('transactions')
+        .insert({
+          user_id: userId,
+          type: 'purchase',
+          amount: pkg.stars_amount,
+          fee: 0,
+          net_amount: pkg.stars_amount,
+          status: 'pending',
+          description: `Stars sotib olish: ${pkg.name}`,
+          metadata: {
+            packageId,
+            telegramUserId,
+            invoicePayload: payload,
+          },
+        })
+    } catch (txError) {
+      console.error('Transaction creation error (non-fatal):', txError)
     }
 
     return NextResponse.json({
@@ -115,8 +145,32 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Create invoice error:', error)
     return NextResponse.json(
-      { error: 'Server xatoligi' },
+      { error: 'Server xatoligi', details: String(error) },
       { status: 500 }
     )
+  }
+}
+
+// GET endpoint to check if packages exist
+export async function GET() {
+  try {
+    const { data: packages, error } = await supabase
+      .from('star_packages')
+      .select('*')
+      .eq('is_active', true)
+      .order('sort_order')
+
+    return NextResponse.json({
+      success: true,
+      botTokenSet: !!TELEGRAM_BOT_TOKEN,
+      packagesCount: packages?.length || 0,
+      packages: packages || [],
+      error: error?.message
+    })
+  } catch (error) {
+    return NextResponse.json({
+      success: false,
+      error: String(error)
+    })
   }
 }

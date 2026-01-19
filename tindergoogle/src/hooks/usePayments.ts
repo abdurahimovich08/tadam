@@ -115,7 +115,10 @@ export function usePayments() {
       const data = await response.json()
 
       if (!data.success) {
-        throw new Error(data.error || 'Invoice yaratishda xatolik')
+        const errorMsg = data.details 
+          ? `${data.error}: ${data.details}` 
+          : data.error || 'Invoice yaratishda xatolik'
+        throw new Error(errorMsg)
       }
 
       // Open Telegram payment
