@@ -11,10 +11,15 @@ CREATE TABLE IF NOT EXISTS profile_views (
   viewer_name text, -- Cache name for display
   viewer_photo text, -- Cache photo URL
   viewed_at timestamptz DEFAULT now(),
+  view_date date DEFAULT CURRENT_DATE, -- For unique constraint
   source text DEFAULT 'swipe', -- 'swipe', 'search', 'profile', 'match'
-  duration_seconds integer DEFAULT 0, -- How long they viewed
-  UNIQUE(profile_id, viewer_id, DATE(viewed_at)) -- One view per day per user
+  duration_seconds integer DEFAULT 0 -- How long they viewed
 );
+
+-- One view per day per user (using index instead of constraint)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_profile_views_unique_daily 
+  ON profile_views(profile_id, viewer_id, view_date) 
+  WHERE viewer_id IS NOT NULL;
 
 -- Profile Likes (who liked you but no match yet)
 CREATE TABLE IF NOT EXISTS profile_likes (
@@ -85,9 +90,9 @@ CREATE OR REPLACE FUNCTION record_profile_view(
 ) RETURNS void AS $$
 BEGIN
   -- Insert or update view (one per day per user)
-  INSERT INTO profile_views (profile_id, viewer_id, viewer_name, viewer_photo, source, duration_seconds)
-  VALUES (p_profile_id, p_viewer_id, p_viewer_name, p_viewer_photo, p_source, p_duration)
-  ON CONFLICT (profile_id, viewer_id, DATE(viewed_at)) 
+  INSERT INTO profile_views (profile_id, viewer_id, viewer_name, viewer_photo, view_date, source, duration_seconds)
+  VALUES (p_profile_id, p_viewer_id, p_viewer_name, p_viewer_photo, CURRENT_DATE, p_source, p_duration)
+  ON CONFLICT (profile_id, viewer_id, view_date) 
   DO UPDATE SET 
     duration_seconds = profile_views.duration_seconds + EXCLUDED.duration_seconds,
     viewed_at = now();
@@ -98,7 +103,7 @@ BEGIN
   ON CONFLICT (profile_id) DO UPDATE SET
     total_views = profile_stats.total_views + 1,
     views_today = CASE 
-      WHEN DATE(profile_stats.updated_at) = CURRENT_DATE THEN profile_stats.views_today + 1
+      WHEN profile_stats.updated_at::date = CURRENT_DATE THEN profile_stats.views_today + 1
       ELSE 1 
     END,
     updated_at = now();
@@ -190,8 +195,8 @@ BEGIN
   RETURN QUERY
   SELECT 
     COALESCE(ps.total_views, 0)::bigint,
-    (SELECT COUNT(*) FROM profile_views WHERE profile_id = p_profile_id AND viewed_at > CURRENT_DATE)::bigint,
-    (SELECT COUNT(*) FROM profile_views WHERE profile_id = p_profile_id AND viewed_at > CURRENT_DATE - INTERVAL '7 days')::bigint,
+    (SELECT COUNT(*) FROM profile_views WHERE profile_id = p_profile_id AND view_date = CURRENT_DATE)::bigint,
+    (SELECT COUNT(*) FROM profile_views WHERE profile_id = p_profile_id AND view_date >= CURRENT_DATE - INTERVAL '7 days')::bigint,
     COALESCE(ps.total_likes, 0)::bigint,
     COALESCE(ps.unseen_likes, 0)::bigint,
     COALESCE(ps.total_followers, 0)::bigint,
@@ -266,6 +271,6 @@ BEGIN
     views_today = 0,
     likes_today = 0,
     updated_at = now()
-  WHERE DATE(updated_at) < CURRENT_DATE;
+  WHERE updated_at::date < CURRENT_DATE;
 END;
 $$ LANGUAGE plpgsql;
