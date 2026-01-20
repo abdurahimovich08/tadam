@@ -47,6 +47,70 @@ export interface Match {
   user2?: User
 }
 
+// ========================================
+// PROFILE ANALYTICS TYPES
+// ========================================
+
+export interface ProfileView {
+  id: string
+  profile_id: string
+  viewer_id: string | null
+  viewer_name: string | null
+  viewer_photo: string | null
+  viewed_at: string
+  source: 'swipe' | 'search' | 'profile' | 'match'
+  duration_seconds: number
+}
+
+export interface ProfileLike {
+  id: string
+  profile_id: string
+  liker_id: string
+  liker_name: string | null
+  liker_photo: string | null
+  liker_age: number | null
+  liked_at: string
+  is_seen: boolean
+  is_super_like: boolean
+}
+
+export interface Follower {
+  id: string
+  profile_id: string
+  follower_id: string
+  follower_name: string | null
+  follower_photo: string | null
+  followed_at: string
+  notifications_enabled: boolean
+}
+
+export interface ProfileStats {
+  profile_id: string
+  total_views: number
+  views_today: number
+  views_this_week: number
+  views_this_month: number
+  total_likes: number
+  likes_today: number
+  unseen_likes: number
+  total_matches: number
+  total_followers: number
+  total_following: number
+  profile_score: number
+  last_active: string
+  updated_at: string
+}
+
+export interface ProfileAnalytics {
+  total_views: number
+  views_today: number
+  views_this_week: number
+  total_likes: number
+  unseen_likes: number
+  total_followers: number
+  total_matches: number
+}
+
 export interface Message {
   id: number
   match_id: number

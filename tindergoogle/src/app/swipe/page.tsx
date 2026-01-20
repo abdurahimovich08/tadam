@@ -85,13 +85,52 @@ export default function Swipe() {
     const swipedUser = users[currentIndex]
     hapticFeedback(liked ? 'medium' : 'light')
 
+    // Record swipe
     await supabase.from('swipes').insert({
       swiper_id: user.id,
       swiped_id: swipedUser.id,
       liked,
     })
 
+    // Record profile view (for analytics)
+    try {
+      const storedUser = localStorage.getItem('user')
+      const userData = storedUser ? JSON.parse(storedUser) : null
+      await supabase.rpc('record_profile_view', {
+        p_profile_id: swipedUser.id,
+        p_viewer_id: user.id,
+        p_viewer_name: userData?.name || null,
+        p_viewer_photo: null,
+        p_source: 'swipe',
+        p_duration: 0
+      })
+    } catch (e) {
+      console.error('Error recording view:', e)
+    }
+
     if (liked) {
+      // Record profile like (for analytics)
+      try {
+        const storedUser = localStorage.getItem('user')
+        const userData = storedUser ? JSON.parse(storedUser) : null
+        const { data: myProfile } = await supabase
+          .from('profiles')
+          .select('age, profile_picture_url')
+          .eq('id', user.id)
+          .single()
+
+        await supabase.rpc('record_profile_like', {
+          p_profile_id: swipedUser.id,
+          p_liker_id: user.id,
+          p_liker_name: userData?.name || null,
+          p_liker_photo: myProfile?.profile_picture_url || null,
+          p_liker_age: myProfile?.age || null,
+          p_is_super_like: false
+        })
+      } catch (e) {
+        console.error('Error recording like:', e)
+      }
+
       const { data: mutualLike } = await supabase
         .from('swipes')
         .select('*')
